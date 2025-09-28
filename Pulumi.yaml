@@ -1,0 +1,3 @@
+name: harbor-infrastructure
+runtime: nodejs
+description: Harbor infrastructure stack - Harbor deployment, OIDC setup, and projects
