@@ -57,6 +57,13 @@ export class Harbor extends pulumi.dynamic.Resource {
                     global: {
                         storageClass: "ceph-replicated",
                     },
+                    persistence: {
+                        persistentVolumeClaim: {
+                            registry: {
+                                size: "20Gi"
+                            }
+                        }
+                    },
                     expose: {
                         type: "ingress",
                         tls: {
