@@ -5,6 +5,8 @@ import * as kubernetes from "@pulumi/kubernetes";
 const k8sNamespace = "harbor";
 
 const kubeconfigStack = new pulumi.StackReference("egulatee/kubeconfig/dev");
+const rookCephStack = new pulumi.StackReference("egulatee/rook-ceph/dev");
+
 const k8sProvider = new kubernetes.Provider("k8s-provider", {
     kubeconfig: kubeconfigStack.requireOutput("kubeconfig"),
     enableServerSideApply: false,
@@ -40,34 +42,6 @@ export class Harbor extends pulumi.dynamic.Resource {
             }
         );
 
-        // Get Ceph RGW S3 credentials from rook-ceph namespace
-        const cephS3Secret = kubernetes.core.v1.Secret.get(
-            "ceph-s3-credentials",
-            "rook-ceph/rgw-admin-secret",
-            { provider: k8sProvider }
-        );
-
-        // Create Harbor S3 secret from Ceph credentials
-        const harborS3Secret = new kubernetes.core.v1.Secret(
-            "harbor-s3-secret",
-            {
-                metadata: {
-                    name: "harbor-s3-secret",
-                    namespace: k8sNamespace,
-                },
-                type: "Opaque",
-                data: {
-                    accesskey: cephS3Secret.data.apply(d => d["accessKey"]),
-                    secretkey: cephS3Secret.data.apply(d => d["secretKey"]),
-                },
-            },
-            {
-                provider: k8sProvider,
-                parent: this,
-                dependsOn: [namespace],
-            }
-        );
-
         // Create S3 bucket using ObjectBucketClaim (Kubernetes-native way)
         const harborBucketClaim = new kubernetes.apiextensions.CustomResource(
             "harbor-registry-bucket",
@@ -79,7 +53,7 @@ export class Harbor extends pulumi.dynamic.Resource {
                     namespace: k8sNamespace,
                 },
                 spec: {
-                    generateBucketName: "harbor-registry",
+                    bucketName: "harbor-registry",
                     storageClassName: "ceph-s3-bucket",
                 },
             },
@@ -87,6 +61,52 @@ export class Harbor extends pulumi.dynamic.Resource {
                 provider: k8sProvider,
                 parent: this,
                 dependsOn: [namespace],
+            }
+        );
+
+        // Get RGW admin credentials from rook-ceph stack
+        // These are admin credentials that have access to all buckets
+        const rgwAccessKey = rookCephStack.requireOutput("rgwAccessKey");
+        const rgwSecretKey = rookCephStack.requireOutput("rgwSecretKey");
+
+        // Link bucket to RGW admin user so it has access
+        // Use exec into the rook-ceph-tools pod instead of a Job
+        const linkBucket = new kubernetes.batch.v1.Job(
+            "link-harbor-bucket",
+            {
+                metadata: {
+                    name: "link-harbor-bucket",
+                    namespace: "rook-ceph",
+                },
+                spec: {
+                    template: {
+                        spec: {
+                            serviceAccountName: "rook-ceph-system",
+                            containers: [{
+                                name: "link-bucket",
+                                image: "rook/ceph:v1.17.8",
+                                command: ["/bin/bash", "-c"],
+                                args: [
+                                    "kubectl exec -n rook-ceph deploy/rook-ceph-tools -- radosgw-admin bucket link --bucket=harbor-registry --uid=rgw-admin-ops-user || " +
+                                    "echo 'Bucket linking will be done manually or bucket already linked'"
+                                ],
+                                env: [{
+                                    name: "KUBECONFIG",
+                                    value: "/var/run/secrets/kubernetes.io/serviceaccount/token",
+                                }],
+                            }],
+                            restartPolicy: "Never",
+                        },
+                    },
+                    backoffLimit: 1,
+                    ttlSecondsAfterFinished: 300,
+                },
+            },
+            {
+                provider: k8sProvider,
+                parent: this,
+                dependsOn: [harborBucketClaim],
+                deleteBeforeReplace: true,
             }
         );
 
@@ -106,19 +126,21 @@ export class Harbor extends pulumi.dynamic.Resource {
                     harborAdminPassword: args.adminPassword,
                     global: {
                         storageClass: "ceph-replicated",  // For PostgreSQL, Redis, Trivy, JobService
+                        updateTimestamp: new Date().toISOString(),  // Force Helm update
                     },
                     // Configure S3 storage for registry (images)
                     persistence: {
                         imageChartStorage: {
                             type: "s3",
+                            disableredirect: true,  // Disable S3 redirect for Ceph RGW
                             s3: {
                                 region: "us-east-1",  // Ceph RGW doesn't use regions, but Harbor requires it
                                 bucket: "harbor-registry",
-                                accesskey: harborS3Secret.data.apply(d =>
-                                    Buffer.from(d["accesskey"] as string, "base64").toString()
+                                accesskey: rgwAccessKey.apply(k =>
+                                    Buffer.from(k as string, "base64").toString()
                                 ),
-                                secretkey: harborS3Secret.data.apply(d =>
-                                    Buffer.from(d["secretkey"] as string, "base64").toString()
+                                secretkey: rgwSecretKey.apply(k =>
+                                    Buffer.from(k as string, "base64").toString()
                                 ),
                                 regionendpoint: "http://rook-ceph-rgw-s3-objectstore.rook-ceph.svc:80",
                                 encrypt: false,
@@ -126,6 +148,10 @@ export class Harbor extends pulumi.dynamic.Resource {
                                 v4auth: true,
                                 chunksize: "5242880",  // 5MB chunks
                                 rootdirectory: "/registry",
+                                skipverify: true,  // Skip TLS verification for internal HTTP
+                                multipartcopychunksize: "5242880",
+                                multipartcopymaxconcurrency: 50,
+                                multipartcopythresholdsize: "5242880",
                             },
                         },
                     },
@@ -159,7 +185,7 @@ export class Harbor extends pulumi.dynamic.Resource {
             {
                 provider: k8sProvider,
                 parent: this,
-                dependsOn: [namespace, harborS3Secret, harborBucketClaim],
+                dependsOn: [namespace, harborBucketClaim, linkBucket],
                 customTimeouts: {
                     create: "10m",
                     update: "10m",
