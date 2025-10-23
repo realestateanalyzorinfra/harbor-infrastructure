@@ -154,6 +154,40 @@ export class Harbor extends pulumi.dynamic.Resource {
                                 multipartcopythresholdsize: "5242880",
                             },
                         },
+                        // Explicit database persistence configuration
+                        persistentVolumeClaim: {
+                            database: {
+                                accessMode: "ReadWriteOnce",
+                                size: "1Gi",
+                                storageClass: "ceph-replicated",
+                            },
+                        },
+                    },
+                    // Harbor database-specific configuration
+                    database: {
+                        type: "internal",
+                        internal: {
+                            initContainer: {
+                                permissions: {
+                                    command: ["/bin/sh"],
+                                    args: [
+                                        "-c",
+                                        "mkdir -p /var/lib/postgresql/data/pgdata && " +
+                                        "chmod 0750 /var/lib/postgresql/data/pgdata && " +
+                                        "find /var/lib/postgresql/data/pgdata -type d -exec chmod 0750 {} \\; && " +
+                                        "find /var/lib/postgresql/data/pgdata -type f -exec chmod 0640 {} \\; && " +
+                                        "chown -R 999:999 /var/lib/postgresql/data/pgdata && " +
+                                        "echo 'Database permissions fixed successfully - removed sgid bit' && " +
+                                        "ls -la /var/lib/postgresql/data/"
+                                    ],
+                                    securityContext: {
+                                        runAsNonRoot: false,
+                                        runAsUser: 0,
+                                        runAsGroup: 0,
+                                    },
+                                },
+                            },
+                        },
                     },
                     expose: {
                         type: "ingress",
@@ -191,44 +225,6 @@ export class Harbor extends pulumi.dynamic.Resource {
                     update: "10m",
                     delete: "10m",
                 },
-                transformations: [
-                    (args: any) => {
-                        // Fix the database StatefulSet init container
-                        if (args.type === "kubernetes:apps/v1:StatefulSet" &&
-                            args.name.includes("harbor-database")) {
-
-                            const spec = args.props.spec;
-                            if (spec && spec.template && spec.template.spec && spec.template.spec.initContainers) {
-                                // Find the data-permissions-ensurer init container
-                                const initContainers = spec.template.spec.initContainers;
-                                const permissionsContainer = initContainers.find((c: any) =>
-                                    c.name === "data-permissions-ensurer"
-                                );
-
-                                if (permissionsContainer) {
-                                    // Fix the command to properly create directory and set permissions
-                                    permissionsContainer.command = ["/bin/sh"];
-                                    permissionsContainer.args = [
-                                        "-c",
-                                        "mkdir -p /var/lib/postgresql/data/pgdata && " +
-                                        "chmod -R 700 /var/lib/postgresql/data/pgdata && " +
-                                        "chown -R 999:999 /var/lib/postgresql/data/pgdata && " +
-                                        "echo 'Database permissions fixed successfully' && " +
-                                        "ls -la /var/lib/postgresql/data/"
-                                    ];
-
-                                    // Allow running as root to chown files
-                                    if (permissionsContainer.securityContext) {
-                                        permissionsContainer.securityContext.runAsNonRoot = false;
-                                        permissionsContainer.securityContext.runAsUser = 0;
-                                    }
-                                }
-                            }
-                        }
-
-                        return args;
-                    }
-                ],
             }
         );
     }
