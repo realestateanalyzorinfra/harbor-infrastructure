@@ -82,7 +82,23 @@ export class Harbor extends pulumi.dynamic.Resource {
             }
         );
 
-        // Get RGW admin credentials from rook-ceph stack
+        // Get bucket credentials from OBC-generated secret
+        // The ObjectBucketClaim creates bucket-specific credentials in the harbor-registry-bucket secret
+        const obcSecret = pulumi.all([harborBucketClaim.id]).apply(() => {
+            return kubernetes.core.v1.Secret.get(
+                "harbor-bucket-credentials",
+                pulumi.interpolate`${k8sNamespace}/harbor-registry-bucket`,
+                {
+                    provider: k8sProvider,
+                }
+            );
+        });
+
+        // Extract OBC credentials instead of using RGW admin credentials
+        const obcAccessKey = obcSecret.data["AWS_ACCESS_KEY_ID"];
+        const obcSecretKey = obcSecret.data["AWS_SECRET_ACCESS_KEY"];
+
+        // Get RGW admin credentials from rook-ceph stack for bucket linking job
         // These are admin credentials that have access to all buckets
         const rgwAccessKey = rookCephStack.requireOutput("rgwAccessKey");
         const rgwSecretKey = rookCephStack.requireOutput("rgwSecretKey");
@@ -234,10 +250,11 @@ export class Harbor extends pulumi.dynamic.Resource {
                             s3: {
                                 region: "us-east-1",  // Ceph RGW doesn't use regions, but Harbor requires it
                                 bucket: "harbor-registry",
-                                accesskey: rgwAccessKey.apply(k =>
+                                // Use OBC-generated bucket-specific credentials instead of admin credentials
+                                accesskey: obcAccessKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
-                                secretkey: rgwSecretKey.apply(k =>
+                                secretkey: obcSecretKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
                                 regionendpoint: "http://rook-ceph-rgw-s3-objectstore.rook-ceph.svc:80",
@@ -298,7 +315,7 @@ export class Harbor extends pulumi.dynamic.Resource {
             {
                 provider: k8sProvider,
                 parent: this,
-                dependsOn: [namespace, postgresql, harborAdminSecret, databaseSecret, linkBucket],
+                dependsOn: [namespace, postgresql, harborAdminSecret, databaseSecret, linkBucket, harborBucketClaim],
                 customTimeouts: {
                     create: "10m",
                     update: "10m",
