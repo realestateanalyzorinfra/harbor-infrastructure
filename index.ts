@@ -94,22 +94,23 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
 // Create Harbor instance (ESO-managed credentials)
 let harbor = new Harbor("harbor", {});
 
-// Get Harbor admin password from K8s secret (managed by ESO)
-const harborAdminPasswordSecret = kubernetes.core.v1.Secret.get(
-    "harbor-admin-password-ref",
-    pulumi.interpolate`harbor/harbor-admin-credentials`,
-    { provider: harbor.k8sProvider }
+// Get Harbor admin password from Vault for Pulumi provider
+// The Harbor Helm chart will use the ESO-synced K8s secret
+// But the Pulumi provider needs the password to configure Harbor after deployment
+const { execSync } = require('child_process');
+const harborAdminPassword = pulumi.secret(
+    execSync('kubectl exec -n vault vault-e4b365db-0 -- vault kv get -field=adminPassword secret/harbor/prod')
+        .toString()
+        .trim()
 );
 
-// Configure Harbor provider with ESO-managed password
+// Configure Harbor provider with password from Vault
 let harborProvider = new pulumiharbor.Provider(
     "harborprovider",
     {
         url: "https://harbor.egyrllc.com",
         username: "admin",
-        password: harborAdminPasswordSecret.data.apply(d =>
-            Buffer.from(d["HARBOR_ADMIN_PASSWORD"], "base64").toString()
-        ),
+        password: harborAdminPassword,
     },
     { dependsOn: [harbor, harbor.chart, harbor.harborAdminSecret] }
 );
@@ -199,9 +200,7 @@ console.log("2. Visit Harbor at: https://harbor.egyrllc.com");
 // Export Harbor registry information for external stack references
 export const harborUrl = "https://harbor.egyrllc.com";
 export const harborRegistryUrl = "harbor.egyrllc.com";
-export const harborAdminPasswordExport = harborAdminPasswordSecret.data.apply(d =>
-    pulumi.secret(Buffer.from(d["HARBOR_ADMIN_PASSWORD"], "base64").toString())
-);
+export const harborAdminPasswordExport = harborAdminPassword;
 
 // Export project information for permissions stack
 export const realestateanalyzorProjectName = "realestateanalyzor";
