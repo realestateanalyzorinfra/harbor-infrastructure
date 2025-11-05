@@ -139,6 +139,8 @@ export class Harbor extends pulumi.dynamic.Resource {
                     repo: "https://charts.bitnami.com/bitnami",
                 },
                 values: {
+                    // Set fixed fullname to avoid random hash suffix
+                    fullnameOverride: "harbor-postgresql",
                     auth: {
                         // Use ESO-managed credentials
                         existingSecret: "harbor-database-credentials",
