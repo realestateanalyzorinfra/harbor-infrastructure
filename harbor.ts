@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
+import { createExternalSecrets } from "./eso-secrets";
 
 // Configuration and environment checks
 const k8sNamespace = "harbor";
@@ -19,14 +20,21 @@ const HarborProvider: pulumi.dynamic.ResourceProvider = {
 };
 
 export interface HarborArgs {
-    adminPassword: pulumi.Input<string>;
+    // No args needed - credentials managed by ESO
 }
 
 export class Harbor extends pulumi.dynamic.Resource {
     public chart;
+    public k8sProvider;
+    public harborAdminSecret;
+    public databaseSecret;
+    public postgresql;
 
     constructor(name: string, args: HarborArgs, opts?: pulumi.ComponentResourceOptions) {
         super(HarborProvider, name, {}, opts);
+
+        // Export k8sProvider for use in index.ts
+        this.k8sProvider = k8sProvider;
 
         // Create a namespace
         const namespace = new kubernetes.core.v1.Namespace(
@@ -41,6 +49,16 @@ export class Harbor extends pulumi.dynamic.Resource {
                 parent: this,
             }
         );
+
+        // Create ExternalSecret resources for ESO-managed credentials
+        const { harborAdminSecret, databaseSecret } = createExternalSecrets(
+            k8sNamespace,
+            k8sProvider
+        );
+
+        // Export ExternalSecrets for use in index.ts
+        this.harborAdminSecret = harborAdminSecret;
+        this.databaseSecret = databaseSecret;
 
         // Create S3 bucket using ObjectBucketClaim (Kubernetes-native way)
         const harborBucketClaim = new kubernetes.apiextensions.CustomResource(
@@ -110,7 +128,83 @@ export class Harbor extends pulumi.dynamic.Resource {
             }
         );
 
-        // Use Helm to install Harbor with transformation to fix database init container
+        // Deploy external PostgreSQL using Bitnami Helm Chart
+        const postgresql = new kubernetes.helm.v3.Release(
+            "harbor-postgresql",
+            {
+                chart: "postgresql",
+                version: "18.1.1",
+                namespace: k8sNamespace,
+                repositoryOpts: {
+                    repo: "https://charts.bitnami.com/bitnami",
+                },
+                values: {
+                    auth: {
+                        // Use ESO-managed credentials
+                        existingSecret: "harbor-database-credentials",
+                        secretKeys: {
+                            adminPasswordKey: "postgres-password",
+                            userPasswordKey: "password"
+                        },
+                        username: "harbor",
+                        database: "registry"  // Primary database
+                    },
+                    primary: {
+                        persistence: {
+                            enabled: true,
+                            storageClass: "ceph-replicated",
+                            size: "5Gi"
+                        },
+                        resources: {
+                            requests: {
+                                memory: "512Mi",
+                                cpu: "500m"
+                            },
+                            limits: {
+                                memory: "1Gi",
+                                cpu: "1000m"
+                            }
+                        },
+                        // Initialize additional databases for Harbor
+                        initdb: {
+                            scripts: {
+                                "init-harbor-databases.sql": `
+                                    -- Create additional databases required by Harbor
+                                    CREATE DATABASE IF NOT EXISTS notary_server;
+                                    CREATE DATABASE IF NOT EXISTS notary_signer;
+
+                                    -- Grant privileges to harbor user
+                                    GRANT ALL PRIVILEGES ON DATABASE registry TO harbor;
+                                    GRANT ALL PRIVILEGES ON DATABASE notary_server TO harbor;
+                                    GRANT ALL PRIVILEGES ON DATABASE notary_signer TO harbor;
+                                `
+                            }
+                        }
+                    },
+                    metrics: {
+                        enabled: true,
+                        serviceMonitor: {
+                            enabled: true
+                        }
+                    }
+                }
+            },
+            {
+                provider: k8sProvider,
+                parent: this,
+                dependsOn: [namespace, databaseSecret],
+                customTimeouts: {
+                    create: "10m",
+                    update: "10m",
+                    delete: "10m"
+                }
+            }
+        );
+
+        // Export PostgreSQL for use in index.ts
+        this.postgresql = postgresql;
+
+        // Use Helm to install Harbor with external database
         this.chart = new kubernetes.helm.v3.Release(
             "harbor",
             {
@@ -123,9 +217,11 @@ export class Harbor extends pulumi.dynamic.Resource {
                 namespace: k8sNamespace,
                 values: {
                     externalURL: "https://harbor.egyrllc.com",
-                    harborAdminPassword: args.adminPassword,
+                    // Use ESO-managed admin password from K8s Secret
+                    existingSecretAdminPassword: "harbor-admin-credentials",
+                    existingSecretAdminPasswordKey: "HARBOR_ADMIN_PASSWORD",
                     global: {
-                        storageClass: "ceph-replicated",  // For PostgreSQL, Redis, Trivy, JobService
+                        storageClass: "ceph-replicated",  // For Redis, Trivy, JobService
                         updateTimestamp: new Date().toISOString(),  // Force Helm update
                     },
                     // Configure S3 storage for registry (images)
@@ -154,40 +250,21 @@ export class Harbor extends pulumi.dynamic.Resource {
                                 multipartcopythresholdsize: "5242880",
                             },
                         },
-                        // Explicit database persistence configuration
-                        persistentVolumeClaim: {
-                            database: {
-                                accessMode: "ReadWriteOnce",
-                                size: "1Gi",
-                                storageClass: "ceph-replicated",
-                            },
-                        },
                     },
-                    // Harbor database-specific configuration
+                    // Configure external PostgreSQL database
                     database: {
-                        type: "internal",
-                        internal: {
-                            initContainer: {
-                                permissions: {
-                                    command: ["/bin/sh"],
-                                    args: [
-                                        "-c",
-                                        "mkdir -p /var/lib/postgresql/data/pgdata && " +
-                                        "chmod 0750 /var/lib/postgresql/data/pgdata && " +
-                                        "find /var/lib/postgresql/data/pgdata -type d -exec chmod 0750 {} \\; && " +
-                                        "find /var/lib/postgresql/data/pgdata -type f -exec chmod 0640 {} \\; && " +
-                                        "chown -R 999:999 /var/lib/postgresql/data/pgdata && " +
-                                        "echo 'Database permissions fixed successfully - removed sgid bit' && " +
-                                        "ls -la /var/lib/postgresql/data/"
-                                    ],
-                                    securityContext: {
-                                        runAsNonRoot: false,
-                                        runAsUser: 0,
-                                        runAsGroup: 0,
-                                    },
-                                },
-                            },
-                        },
+                        type: "external",
+                        external: {
+                            host: "harbor-postgresql.harbor.svc.cluster.local",
+                            port: "5432",
+                            username: "harbor",
+                            // Use ESO-managed database credentials
+                            existingSecret: "harbor-database-credentials",
+                            coreDatabase: "registry",
+                            notaryServerDatabase: "notary_server",
+                            notarySignerDatabase: "notary_signer",
+                            sslmode: "disable"  // Plain connections within cluster
+                        }
                     },
                     expose: {
                         type: "ingress",
@@ -219,7 +296,7 @@ export class Harbor extends pulumi.dynamic.Resource {
             {
                 provider: k8sProvider,
                 parent: this,
-                dependsOn: [namespace, harborBucketClaim, linkBucket],
+                dependsOn: [namespace, postgresql, harborAdminSecret, databaseSecret, linkBucket],
                 customTimeouts: {
                     create: "10m",
                     update: "10m",

@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { Harbor } from "./harbor";
 import * as pulumiharbor from "@pulumiverse/harbor";
 import * as keycloak from "@pulumi/keycloak";
+import * as kubernetes from "@pulumi/kubernetes";
 
 require("dotenv").config({ path: [".env.local", ".env"] });
 
@@ -20,9 +21,6 @@ const generateRandomPassword = (length: number = 45): string => {
 
 // Configuration
 const config = new pulumi.Config();
-
-// Get Harbor admin password from config (required, secret) - stable across deployments
-const harborAdminPassword = config.requireSecret("harborAdminPassword");
 
 // Reference keycloak stack
 export const keycloakStack = new pulumi.StackReference("egulatee/keycloak/dev");
@@ -93,20 +91,27 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
     { provider: keycloakProvider, dependsOn: [harborClient] }
 );
 
-// Create Harbor instance
-let harbor = new Harbor("harbor", {
-    adminPassword: harborAdminPassword,
-});
+// Create Harbor instance (ESO-managed credentials)
+let harbor = new Harbor("harbor", {});
 
-// Configure Harbor provider
+// Get Harbor admin password from K8s secret (managed by ESO)
+const harborAdminPasswordSecret = kubernetes.core.v1.Secret.get(
+    "harbor-admin-password-ref",
+    pulumi.interpolate`harbor/harbor-admin-credentials`,
+    { provider: harbor.k8sProvider }
+);
+
+// Configure Harbor provider with ESO-managed password
 let harborProvider = new pulumiharbor.Provider(
     "harborprovider",
     {
         url: "https://harbor.egyrllc.com",
         username: "admin",
-        password: harborAdminPassword,
+        password: harborAdminPasswordSecret.data.apply(d =>
+            Buffer.from(d["HARBOR_ADMIN_PASSWORD"], "base64").toString()
+        ),
     },
-    { dependsOn: [harbor, harbor.chart] }
+    { dependsOn: [harbor, harbor.chart, harbor.harborAdminSecret] }
 );
 
 // Configure OIDC authentication
@@ -177,6 +182,7 @@ const aiaugmentedsoftwaredevproject = new pulumiharbor.Project(
         name: "aiaugmentedsoftwaredev",
         public: false,
         vulnerabilityScanning: true,
+        forceDestroy: true,
     },
     {
         provider: harborProvider,
@@ -193,7 +199,9 @@ console.log("2. Visit Harbor at: https://harbor.egyrllc.com");
 // Export Harbor registry information for external stack references
 export const harborUrl = "https://harbor.egyrllc.com";
 export const harborRegistryUrl = "harbor.egyrllc.com";
-export const harborAdminPasswordExport = harborAdminPassword;
+export const harborAdminPasswordExport = harborAdminPasswordSecret.data.apply(d =>
+    pulumi.secret(Buffer.from(d["HARBOR_ADMIN_PASSWORD"], "base64").toString())
+);
 
 // Export project information for permissions stack
 export const realestateanalyzorProjectName = "realestateanalyzor";

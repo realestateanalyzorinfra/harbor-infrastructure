@@ -1,3 +1,1 @@
-config:
-  harbor-infrastructure:harborAdminPassword:
-    secure: AAABAAfHGJ5FF0s0nnFviECB1g2GNaVxiFfrSCdXVR2Qoq+AHXwHAzU++b4ZdXRWiLLWG6C/riR90O9Xuh3PwsZmA5PvDdboB6G2Dg==
+config: {}
