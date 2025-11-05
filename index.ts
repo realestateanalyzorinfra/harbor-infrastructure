@@ -99,7 +99,7 @@ let harbor = new Harbor("harbor", {});
 // Use localhost when running locally with kubectl port-forward
 const vaultProvider = new vault.Provider("vault", {
     address: "http://localhost:8200",
-    // Vault token should be set via VAULT_TOKEN environment variable
+    token: process.env.VAULT_TOKEN,
     skipChildToken: true,
 });
 
