@@ -96,10 +96,11 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
 let harbor = new Harbor("harbor", {});
 
 // Configure Vault provider to read secrets
+// Use localhost when running locally with kubectl port-forward
 const vaultProvider = new vault.Provider("vault", {
-    address: "http://vault-e4b365db.vault.svc.cluster.local:8200",
+    address: "http://localhost:8200",
     // Vault token should be set via VAULT_TOKEN environment variable
-    // or use Kubernetes auth if running in-cluster
+    skipChildToken: true,
 });
 
 // Get Harbor admin password from Vault using Pulumi Vault provider
