@@ -4,9 +4,10 @@
     "description": "Harbor infrastructure stack - Harbor deployment, OIDC setup, and projects",
     "main": "index.js",
     "dependencies": {
-        "@pulumi/pulumi": "^3.0.0",
-        "@pulumi/kubernetes": "^4.0.0",
         "@pulumi/keycloak": "^5.0.0",
+        "@pulumi/kubernetes": "^4.0.0",
+        "@pulumi/pulumi": "^3.0.0",
+        "@pulumi/vault": "^7.3.1",
         "@pulumiverse/harbor": "^3.10.9",
         "dotenv": "^16.0.0"
     },
