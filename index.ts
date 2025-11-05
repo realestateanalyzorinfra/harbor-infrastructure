@@ -3,6 +3,7 @@ import { Harbor } from "./harbor";
 import * as pulumiharbor from "@pulumiverse/harbor";
 import * as keycloak from "@pulumi/keycloak";
 import * as kubernetes from "@pulumi/kubernetes";
+import * as vault from "@pulumi/vault";
 
 require("dotenv").config({ path: [".env.local", ".env"] });
 
@@ -94,14 +95,23 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
 // Create Harbor instance (ESO-managed credentials)
 let harbor = new Harbor("harbor", {});
 
-// Get Harbor admin password from Vault for Pulumi provider
+// Configure Vault provider to read secrets
+const vaultProvider = new vault.Provider("vault", {
+    address: "http://vault-e4b365db.vault.svc.cluster.local:8200",
+    // Vault token should be set via VAULT_TOKEN environment variable
+    // or use Kubernetes auth if running in-cluster
+});
+
+// Get Harbor admin password from Vault using Pulumi Vault provider
 // The Harbor Helm chart will use the ESO-synced K8s secret
 // But the Pulumi provider needs the password to configure Harbor after deployment
-const { execSync } = require('child_process');
+const harborVaultSecret = vault.kv.getSecretV2Output({
+    mount: "secret",
+    name: "harbor/prod",
+}, { provider: vaultProvider });
+
 const harborAdminPassword = pulumi.secret(
-    execSync('kubectl exec -n vault vault-e4b365db-0 -- vault kv get -field=adminPassword secret/harbor/prod')
-        .toString()
-        .trim()
+    harborVaultSecret.apply(s => s.data["adminPassword"])
 );
 
 // Configure Harbor provider with password from Vault
