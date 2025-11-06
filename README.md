@@ -21,8 +21,8 @@ This is **Stack 1** of a two-stack Harbor deployment:
 
 ## Prerequisites
 
-- Kubernetes cluster with access via `egulatee/kubeconfig/dev` Pulumi stack
-- Keycloak deployment via `egulatee/keycloak/dev` Pulumi stack
+- Kubernetes cluster with access via `egulatee/kubeconfig/prod` Pulumi stack
+- Keycloak deployment via `egulatee/keycloak/prod` Pulumi stack
 - Pulumi CLI installed and configured
 - Node.js and npm
 
@@ -75,5 +75,5 @@ After deployment:
 
 ## Dependencies
 
-- `egulatee/kubeconfig/dev` - Kubernetes cluster access
-- `egulatee/keycloak/dev` - Keycloak server deployment
+- `egulatee/kubeconfig/prod` - Kubernetes cluster access
+- `egulatee/keycloak/prod` - Keycloak server deployment
