@@ -7,6 +7,7 @@ const k8sNamespace = "harbor";
 
 const kubeconfigStack = new pulumi.StackReference("egulatee/kubeconfig/dev");
 const rookCephStack = new pulumi.StackReference("egulatee/rook-ceph/dev");
+const traefikStack = new pulumi.StackReference("egulatee/traefik-ingress/prod");
 
 const k8sProvider = new kubernetes.Provider("k8s-provider", {
     kubeconfig: kubeconfigStack.requireOutput("kubeconfig"),
@@ -301,6 +302,7 @@ export class Harbor extends pulumi.dynamic.Resource {
                             },
                         },
                         ingress: {
+                            className: traefikStack.requireOutput("ingressClassName"),
                             hosts: {
                                 core: "harbor.egyrllc.com",
                             },
