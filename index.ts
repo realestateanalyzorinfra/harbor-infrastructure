@@ -96,10 +96,17 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
 let harbor = new Harbor("harbor", {});
 
 // Configure Vault provider to read secrets
-// Use localhost when running locally with kubectl port-forward
+// Get Vault address from hashicorp-vault stack (cluster-internal URL)
+// Override with config for local development (e.g., "http://localhost:8200" with port-forward)
+const vaultAddressOverride = config.get("vaultAddress");
+const vaultStack = new pulumi.StackReference("egulatee/hashcorp-vault/prod");
+const vaultServiceUrl = vaultAddressOverride
+    ? pulumi.output(vaultAddressOverride)
+    : vaultStack.getOutput("vaultServiceUrl");
+
 const vaultToken = config.getSecret("vaultToken") || process.env.VAULT_TOKEN;
 const vaultProvider = new vault.Provider("vault", {
-    address: "http://localhost:8200",
+    address: vaultServiceUrl,
     token: vaultToken,
     skipChildToken: true,
 });

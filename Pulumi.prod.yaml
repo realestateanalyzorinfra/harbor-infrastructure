@@ -1,0 +1,3 @@
+config:
+  harbor-infrastructure:vaultToken:
+    secure: AAABAH/gIoi7BYDhbQ4Q/QhEHefDfsT0JfICemdIdwEs+GLXqKoYFRd6Uh+V0YWpqW/tCFAEnstVbYLo
