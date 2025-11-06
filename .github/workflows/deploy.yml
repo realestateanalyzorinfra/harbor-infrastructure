@@ -19,7 +19,7 @@ jobs:
           - { stack: "egulatee/traefik-ingress/prod", name: "Traefik Ingress" }
           - { stack: "egulatee/kubeconfig/prod", name: "Kubeconfig" }
           - { stack: "egulatee/rook-ceph/dev", name: "Rook-Ceph Storage" }
-          - { stack: "egulatee/keycloak/dev", name: "Keycloak Auth" }
+          - { stack: "egulatee/keycloak/prod", name: "Keycloak Auth" }
     steps:
       - uses: actions/checkout@v4
 

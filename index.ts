@@ -24,7 +24,7 @@ const generateRandomPassword = (length: number = 45): string => {
 const config = new pulumi.Config();
 
 // Reference keycloak stack
-export const keycloakStack = new pulumi.StackReference("egulatee/keycloak/dev");
+export const keycloakStack = new pulumi.StackReference("egulatee/keycloak/prod");
 
 // Get outputs from keycloak stack
 export const keycloakAdminUserId = keycloakStack.requireOutput("keycloakAdminUserId");
