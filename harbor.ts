@@ -307,6 +307,12 @@ export class Harbor extends pulumi.dynamic.Resource {
                             annotations: {
                                 "cert-manager.io/cluster-issuer": "zerossl-prod",
                                 "external-dns.alpha.kubernetes.io/hostname": "harbor.egyrllc.com.",
+                                // Add timeout annotations for large image uploads (800MB+)
+                                // Fixes "tls: bad record MAC" errors during GitHub Actions pushes
+                                // See: https://github.com/realestateanalyzorinfra/harbor-infrastructure/issues/8
+                                "traefik.ingress.kubernetes.io/request-timeout": "1800s",  // 30 minutes for Traefik
+                                "nginx.ingress.kubernetes.io/proxy-read-timeout": "1800",   // 30 minutes (fallback for NGINX)
+                                "nginx.ingress.kubernetes.io/proxy-send-timeout": "1800",   // 30 minutes (fallback for NGINX)
                             },
                         },
                     },
