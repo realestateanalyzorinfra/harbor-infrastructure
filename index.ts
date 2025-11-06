@@ -127,26 +127,37 @@ let harborProvider = new pulumiharbor.Provider(
     { dependsOn: [harbor, harbor.chart, harbor.harborAdminSecret] }
 );
 
-// Configure OIDC authentication
-const configAuthResource = new pulumiharbor.ConfigAuth(
-    "configAuthResource",
-    {
-        authMode: "oidc_auth",
-        primaryAuthMode: false,
-        oidcName: "Keycloak",
-        oidcClientId: harborClient.clientId,
-        oidcClientSecret: harborClient.clientSecret,
-        oidcEndpoint: "https://keycloak.egyrllc.com/realms/Harbor",
-        oidcScope: "openid,profile,email,offline_access",
-        oidcUserClaim: "preferred_username",
-        oidcAutoOnboard: true,
-        oidcVerifyCert: true,
-    },
-    {
-        provider: harborProvider,
-        dependsOn: [harborProvider, harbor, harbor.chart, harborClient],
-    }
-);
+// OIDC authentication DISABLED - Harbor bug with robot accounts
+// When OIDC is enabled, robot account authentication fails with "error:not supported"
+// even when primaryAuthMode=false. This is a known Harbor issue affecting multiple versions.
+// See: https://github.com/goharbor/harbor/issues/15253
+//      https://github.com/goharbor/harbor/issues/20629
+//      https://github.com/goharbor/harbor/issues/8054
+//
+// Temporary workaround: Disable OIDC entirely, use database authentication only
+// Users can still login with admin account. Re-enable OIDC when Harbor fixes the bug.
+//
+// TODO: Re-enable OIDC when Harbor releases a fix for robot account authentication
+//
+// const configAuthResource = new pulumiharbor.ConfigAuth(
+//     "configAuthResource",
+//     {
+//         authMode: "oidc_auth",
+//         primaryAuthMode: false,
+//         oidcName: "Keycloak",
+//         oidcClientId: harborClient.clientId,
+//         oidcClientSecret: harborClient.clientSecret,
+//         oidcEndpoint: "https://keycloak.egyrllc.com/realms/Harbor",
+//         oidcScope: "openid,profile,email,offline_access",
+//         oidcUserClaim: "preferred_username",
+//         oidcAutoOnboard: true,
+//         oidcVerifyCert: true,
+//     },
+//     {
+//         provider: harborProvider,
+//         dependsOn: [harborProvider, harbor, harbor.chart, harborClient],
+//     }
+// );
 
 // Create projects
 const reaproject = new pulumiharbor.Project(

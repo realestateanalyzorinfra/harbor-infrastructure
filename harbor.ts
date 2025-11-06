@@ -240,7 +240,9 @@ export class Harbor extends pulumi.dynamic.Resource {
                     existingSecretAdminPasswordKey: "HARBOR_ADMIN_PASSWORD",
                     global: {
                         storageClass: "ceph-replicated",  // For Redis, Trivy, JobService
-                        updateTimestamp: new Date().toISOString(),  // Force Helm update
+                        // REMOVED updateTimestamp - it forces pod restarts on every Pulumi run
+                        // Pod restarts trigger Harbor OIDC/robot account authentication bug
+                        // updateTimestamp: new Date().toISOString(),  // Force Helm update
                     },
                     // Configure S3 storage for registry (images)
                     persistence: {
@@ -250,14 +252,13 @@ export class Harbor extends pulumi.dynamic.Resource {
                             s3: {
                                 region: "us-east-1",  // Ceph RGW doesn't use regions, but Harbor requires it
                                 bucket: "harbor-registry",
-                                // DIAGNOSTIC TEST: Temporarily reverted to RGW admin credentials
-                                // Testing if OBC credentials are causing Harbor push failures (Issue #10)
-                                // Previous: Used obcAccessKey/obcSecretKey (commit cc19ed7)
-                                // Current: Using rgwAccessKey/rgwSecretKey for diagnostic purposes
-                                accesskey: rgwAccessKey.apply(k =>
+                                // Use OBC-generated bucket-specific credentials (least-privilege)
+                                // Issue #10 investigation confirmed S3 credentials were NOT the problem
+                                // Root cause: Harbor OIDC + robot account authentication bug
+                                accesskey: obcAccessKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
-                                secretkey: rgwSecretKey.apply(k =>
+                                secretkey: obcSecretKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
                                 regionendpoint: "http://rook-ceph-rgw-s3-objectstore.rook-ceph.svc:80",
