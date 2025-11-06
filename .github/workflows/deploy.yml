@@ -34,7 +34,7 @@ jobs:
       - name: Check ${{ matrix.dependency.name }}
         uses: pulumi/actions@v5
         with:
-          command: stack output
+          command: output
           stack-name: ${{ matrix.dependency.stack }}
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

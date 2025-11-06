@@ -3,6 +3,9 @@
     "version": "1.0.0",
     "description": "Harbor infrastructure stack - Harbor deployment, OIDC setup, and projects",
     "main": "index.ts",
+    "engines": {
+        "node": ">=18.0.0"
+    },
     "dependencies": {
         "@pulumi/keycloak": "^5.0.0",
         "@pulumi/kubernetes": "^4.0.0",
