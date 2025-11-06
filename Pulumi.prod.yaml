@@ -1,3 +1,7 @@
 config:
   harbor-infrastructure:vaultToken:
     secure: AAABAH/gIoi7BYDhbQ4Q/QhEHefDfsT0JfICemdIdwEs+GLXqKoYFRd6Uh+V0YWpqW/tCFAEnstVbYLo
+  harbor-infrastructure:harborAdminPassword:
+    secure: AAABAPboL2D5KpRu238/MbqPjNhKEvyH0n53kUI3j6CkRI9rtVQ+5ddLU85GaUu4yoKpwg4iyPyChiTouEvBo6hJsmP8dk+UZ9om5w==
+  harbor-infrastructure:harborDatabasePassword:
+    secure: AAABAPxAo8ZzrSyu9pNxLd2EgEnSX90WS46sKnsLeeafmGf/xwzndu+8ZF3lUW07rbCIMZQWNe0ll+jYk1gAhxI9zx3E9oPDADAE2Q==

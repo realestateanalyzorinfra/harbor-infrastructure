@@ -1,8 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
-import { createExternalSecrets } from "./eso-secrets";
 
 // Configuration and environment checks
+const config = new pulumi.Config();
 const k8sNamespace = "harbor";
 
 const kubeconfigStack = new pulumi.StackReference("egulatee/kubeconfig/prod");
@@ -21,7 +21,7 @@ const HarborProvider: pulumi.dynamic.ResourceProvider = {
 };
 
 export interface HarborArgs {
-    // No args needed - credentials managed by ESO
+    // No args needed - credentials managed by Pulumi config
 }
 
 export class Harbor extends pulumi.dynamic.Resource {
@@ -30,6 +30,7 @@ export class Harbor extends pulumi.dynamic.Resource {
     public harborAdminSecret;
     public databaseSecret;
     public postgresql;
+    public adminPassword;
 
     constructor(name: string, args: HarborArgs, opts?: pulumi.ComponentResourceOptions) {
         super(HarborProvider, name, {}, opts);
@@ -51,15 +52,52 @@ export class Harbor extends pulumi.dynamic.Resource {
             }
         );
 
-        // Create ExternalSecret resources for ESO-managed credentials
-        const { harborAdminSecret, databaseSecret } = createExternalSecrets(
-            k8sNamespace,
-            k8sProvider
+        // Get passwords from Pulumi config (replaces Vault/ESO)
+        const adminPassword = config.requireSecret("harborAdminPassword");
+        const dbPassword = config.requireSecret("harborDatabasePassword");
+
+        // Create K8s Secrets directly (replaces ESO)
+        const harborAdminSecret = new kubernetes.core.v1.Secret(
+            "harbor-admin-credentials",
+            {
+                metadata: {
+                    name: "harbor-admin-credentials",
+                    namespace: k8sNamespace,
+                },
+                stringData: {
+                    HARBOR_ADMIN_PASSWORD: adminPassword,
+                },
+            },
+            {
+                provider: k8sProvider,
+                parent: this,
+                dependsOn: [namespace],
+            }
         );
 
-        // Export ExternalSecrets for use in index.ts
+        const databaseSecret = new kubernetes.core.v1.Secret(
+            "harbor-database-credentials",
+            {
+                metadata: {
+                    name: "harbor-database-credentials",
+                    namespace: k8sNamespace,
+                },
+                stringData: {
+                    "postgres-password": dbPassword,
+                    "password": dbPassword,
+                },
+            },
+            {
+                provider: k8sProvider,
+                parent: this,
+                dependsOn: [namespace],
+            }
+        );
+
+        // Export secrets and password for use in index.ts
         this.harborAdminSecret = harborAdminSecret;
         this.databaseSecret = databaseSecret;
+        this.adminPassword = adminPassword;
 
         // Create S3 bucket using ObjectBucketClaim (Kubernetes-native way)
         const harborBucketClaim = new kubernetes.apiextensions.CustomResource(

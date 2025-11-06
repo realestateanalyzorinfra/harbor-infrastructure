@@ -3,7 +3,6 @@ import { Harbor } from "./harbor";
 import * as pulumiharbor from "@pulumiverse/harbor";
 import * as keycloak from "@pulumi/keycloak";
 import * as kubernetes from "@pulumi/kubernetes";
-import * as vault from "@pulumi/vault";
 
 require("dotenv").config({ path: [".env.local", ".env"] });
 
@@ -92,38 +91,13 @@ const harborGroupMapping = new keycloak.openid.GroupMembershipProtocolMapper(
     { provider: keycloakProvider, dependsOn: [harborClient] }
 );
 
-// Create Harbor instance (ESO-managed credentials)
+// Create Harbor instance (Pulumi config-managed credentials)
 let harbor = new Harbor("harbor", {});
 
-// Configure Vault provider to read secrets
-// Get Vault address from hashicorp-vault stack (cluster-internal URL)
-// Override with config for local development (e.g., "http://localhost:8200" with port-forward)
-const vaultAddressOverride = config.get("vaultAddress");
-const vaultStack = new pulumi.StackReference("egulatee/hashcorp-vault/prod");
-const vaultServiceUrl = vaultAddressOverride
-    ? pulumi.output(vaultAddressOverride)
-    : vaultStack.getOutput("vaultServiceUrl");
+// Get Harbor admin password from Harbor resource (no Vault needed)
+const harborAdminPassword = harbor.adminPassword;
 
-const vaultToken = config.getSecret("vaultToken") || process.env.VAULT_TOKEN;
-const vaultProvider = new vault.Provider("vault", {
-    address: vaultServiceUrl,
-    token: vaultToken,
-    skipChildToken: true,
-});
-
-// Get Harbor admin password from Vault using Pulumi Vault provider
-// The Harbor Helm chart will use the ESO-synced K8s secret
-// But the Pulumi provider needs the password to configure Harbor after deployment
-const harborVaultSecret = vault.kv.getSecretV2Output({
-    mount: "secret",
-    name: "harbor/prod",
-}, { provider: vaultProvider });
-
-const harborAdminPassword = pulumi.secret(
-    harborVaultSecret.apply(s => s.data["adminPassword"])
-);
-
-// Configure Harbor provider with password from Vault
+// Configure Harbor provider with password from Pulumi config
 let harborProvider = new pulumiharbor.Provider(
     "harborprovider",
     {
@@ -131,7 +105,7 @@ let harborProvider = new pulumiharbor.Provider(
         username: "admin",
         password: harborAdminPassword,
     },
-    { dependsOn: [harbor, harbor.chart, harbor.harborAdminSecret] }
+    { dependsOn: [harbor, harbor.chart] }
 );
 
 // Configure OIDC authentication
