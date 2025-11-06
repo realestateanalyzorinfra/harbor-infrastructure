@@ -5,7 +5,7 @@ import { createExternalSecrets } from "./eso-secrets";
 // Configuration and environment checks
 const k8sNamespace = "harbor";
 
-const kubeconfigStack = new pulumi.StackReference("egulatee/kubeconfig/dev");
+const kubeconfigStack = new pulumi.StackReference("egulatee/kubeconfig/prod");
 const rookCephStack = new pulumi.StackReference("egulatee/rook-ceph/dev");
 const traefikStack = new pulumi.StackReference("egulatee/traefik-ingress/prod");
 

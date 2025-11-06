@@ -2,7 +2,7 @@
     "name": "harbor-infrastructure",
     "version": "1.0.0",
     "description": "Harbor infrastructure stack - Harbor deployment, OIDC setup, and projects",
-    "main": "index.js",
+    "main": "index.ts",
     "dependencies": {
         "@pulumi/keycloak": "^5.0.0",
         "@pulumi/kubernetes": "^4.0.0",
