@@ -250,11 +250,14 @@ export class Harbor extends pulumi.dynamic.Resource {
                             s3: {
                                 region: "us-east-1",  // Ceph RGW doesn't use regions, but Harbor requires it
                                 bucket: "harbor-registry",
-                                // Use OBC-generated bucket-specific credentials instead of admin credentials
-                                accesskey: obcAccessKey.apply(k =>
+                                // DIAGNOSTIC TEST: Temporarily reverted to RGW admin credentials
+                                // Testing if OBC credentials are causing Harbor push failures (Issue #10)
+                                // Previous: Used obcAccessKey/obcSecretKey (commit cc19ed7)
+                                // Current: Using rgwAccessKey/rgwSecretKey for diagnostic purposes
+                                accesskey: rgwAccessKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
-                                secretkey: obcSecretKey.apply(k =>
+                                secretkey: rgwSecretKey.apply(k =>
                                     Buffer.from(k as string, "base64").toString()
                                 ),
                                 regionendpoint: "http://rook-ceph-rgw-s3-objectstore.rook-ceph.svc:80",
