@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as kubernetes from "@pulumi/kubernetes";
+import { WaitForSecret } from "./utils/waitForSecret";
 
 // Configuration and environment checks
 const config = new pulumi.Config();
@@ -123,19 +124,26 @@ export class Harbor extends pulumi.dynamic.Resource {
 
         // Get bucket credentials from OBC-generated secret
         // The ObjectBucketClaim creates bucket-specific credentials in the harbor-registry-bucket secret
-        const obcSecret = pulumi.all([harborBucketClaim.id]).apply(() => {
-            return kubernetes.core.v1.Secret.get(
-                "harbor-bucket-credentials",
-                pulumi.interpolate`${k8sNamespace}/harbor-registry-bucket`,
-                {
-                    provider: k8sProvider,
-                }
-            );
-        });
+        // Use WaitForSecret to poll for the Secret with exponential backoff (fixes race condition)
+        const obcSecret = new WaitForSecret(
+            "harbor-bucket-credentials-waiter",
+            {
+                secretName: "harbor-registry-bucket",
+                namespace: k8sNamespace,
+                provider: k8sProvider,
+                maxRetries: 20,
+                initialDelayMs: 2000,
+                maxDelayMs: 15000,
+            },
+            {
+                parent: this,
+                dependsOn: [harborBucketClaim],
+            }
+        );
 
         // Extract OBC credentials instead of using RGW admin credentials
-        const obcAccessKey = obcSecret.data["AWS_ACCESS_KEY_ID"];
-        const obcSecretKey = obcSecret.data["AWS_SECRET_ACCESS_KEY"];
+        const obcAccessKey = obcSecret.secretData.apply(data => data["AWS_ACCESS_KEY_ID"]);
+        const obcSecretKey = obcSecret.secretData.apply(data => data["AWS_SECRET_ACCESS_KEY"]);
 
         // Get RGW admin credentials from rook-ceph stack for bucket linking job
         // These are admin credentials that have access to all buckets
