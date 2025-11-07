@@ -125,12 +125,13 @@ export class Harbor extends pulumi.dynamic.Resource {
         // Get bucket credentials from OBC-generated secret
         // The ObjectBucketClaim creates bucket-specific credentials in the harbor-registry-bucket secret
         // Use WaitForSecret to poll for the Secret with exponential backoff (fixes race condition)
+        const kubeconfig = kubeconfigStack.requireOutput("kubeconfig");
         const obcSecret = new WaitForSecret(
             "harbor-bucket-credentials-waiter",
             {
                 secretName: "harbor-registry-bucket",
                 namespace: k8sNamespace,
-                provider: k8sProvider,
+                kubeconfig: kubeconfig as any, // Pulumi will unwrap the Output before passing to the provider
                 maxRetries: 20,
                 initialDelayMs: 2000,
                 maxDelayMs: 15000,

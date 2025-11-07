@@ -1,5 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-import * as kubernetes from "@pulumi/kubernetes";
+import * as k8s from "@kubernetes/client-node";
 
 /**
  * Input arguments for WaitForSecret resource
@@ -16,9 +16,10 @@ export interface WaitForSecretArgs {
     namespace: string;
 
     /**
-     * Kubernetes provider to use for API calls
+     * Kubeconfig as a YAML string for authenticating to the cluster
+     * Note: This must be a plain string, not a Pulumi Output
      */
-    provider: kubernetes.Provider;
+    kubeconfig: string;
 
     /**
      * Maximum number of retry attempts
@@ -58,6 +59,11 @@ class WaitForSecretProvider implements pulumi.dynamic.ResourceProvider {
         console.log(`[WaitForSecret] Waiting for Secret "${secretName}" in namespace "${namespace}"...`);
         console.log(`[WaitForSecret] Configuration: maxRetries=${maxRetries}, initialDelay=${initialDelayMs}ms, maxDelay=${maxDelayMs}ms`);
 
+        // Initialize Kubernetes client from kubeconfig
+        const kc = new k8s.KubeConfig();
+        kc.loadFromString(inputs.kubeconfig);
+        const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+
         let currentDelayMs = initialDelayMs;
         let attempt = 0;
         const startTime = Date.now();
@@ -67,19 +73,15 @@ class WaitForSecretProvider implements pulumi.dynamic.ResourceProvider {
             try {
                 console.log(`[WaitForSecret] Attempt ${attempt}/${maxRetries}: Checking if Secret exists...`);
 
-                // Attempt to get the Secret
-                const secret = await kubernetes.core.v1.Secret.get(
-                    `${secretName}-getter`,
-                    `${namespace}/${secretName}`,
-                    { provider: inputs.provider }
-                );
+                // Attempt to get the Secret using native Kubernetes API
+                const response = await k8sApi.readNamespacedSecret(secretName, namespace);
 
                 // If we got here, Secret exists!
                 const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(`[WaitForSecret] ✓ Success: Secret "${secretName}" found after ${attempt} attempts (${elapsedSeconds}s elapsed)`);
 
-                // Extract Secret data
-                const secretData = await secret.data;
+                // Extract Secret data (already base64-encoded by Kubernetes)
+                const secretData = response.body.data || {};
 
                 return {
                     id: `${namespace}/${secretName}`,
@@ -94,8 +96,8 @@ class WaitForSecretProvider implements pulumi.dynamic.ResourceProvider {
             } catch (error: any) {
                 const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
 
-                // Check if this is a "not found" error (expected during polling)
-                if (error.message && error.message.includes("not found")) {
+                // Check if this is a "not found" error (HTTP 404)
+                if (error.statusCode === 404 || (error.message && error.message.includes("not found"))) {
                     console.log(
                         `[WaitForSecret] Attempt ${attempt}/${maxRetries}: Secret not found, ` +
                         `retrying in ${currentDelayMs}ms... (${elapsedSeconds}s elapsed)`
@@ -151,7 +153,7 @@ class WaitForSecretProvider implements pulumi.dynamic.ResourceProvider {
  * const obcSecret = new WaitForSecret("harbor-bucket-credentials", {
  *     secretName: "harbor-registry-bucket",
  *     namespace: "harbor",
- *     provider: k8sProvider,
+ *     kubeconfig: kubeconfigYaml, // Plain string, not a Pulumi Output
  *     maxRetries: 20,
  *     initialDelayMs: 2000,
  *     maxDelayMs: 15000,
@@ -199,6 +201,10 @@ export class WaitForSecret extends pulumi.dynamic.Resource {
                 secretData: undefined,
                 secretName: args.secretName,
                 namespace: args.namespace,
+                kubeconfig: args.kubeconfig,
+                maxRetries: args.maxRetries,
+                initialDelayMs: args.initialDelayMs,
+                maxDelayMs: args.maxDelayMs,
                 attemptsRequired: undefined,
                 elapsedSeconds: undefined,
             },
