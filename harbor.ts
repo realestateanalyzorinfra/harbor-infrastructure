@@ -290,6 +290,98 @@ export class Harbor extends pulumi.dynamic.Resource {
                         storageClass: "ceph-replicated",  // For Redis, Trivy, JobService
                         updateTimestamp: new Date().toISOString(),  // Force Helm update
                     },
+                    // Resource limits for all Harbor components
+                    // Based on production best practices and research from:
+                    // - GitHub goharbor/harbor-helm#1583 (community baseline)
+                    // - GitHub goharbor/harbor#15977 (Trivy production requirements)
+                    // - 2025 Kubernetes best practices (P90 requests, 2-3x limits)
+                    core: {
+                        resources: {
+                            requests: {
+                                cpu: "1000m",
+                                memory: "512Mi"
+                            },
+                            limits: {
+                                cpu: "2000m",
+                                memory: "1Gi"
+                            }
+                        }
+                    },
+                    portal: {
+                        resources: {
+                            requests: {
+                                cpu: "100m",
+                                memory: "64Mi"
+                            },
+                            limits: {
+                                cpu: "200m",
+                                memory: "128Mi"
+                            }
+                        }
+                    },
+                    registry: {
+                        resources: {
+                            requests: {
+                                cpu: "500m",
+                                memory: "256Mi"
+                            },
+                            limits: {
+                                cpu: "1000m",
+                                memory: "512Mi"
+                            }
+                        }
+                    },
+                    jobservice: {
+                        resources: {
+                            requests: {
+                                cpu: "500m",
+                                memory: "256Mi"
+                            },
+                            limits: {
+                                cpu: "1000m",
+                                memory: "512Mi"
+                            }
+                        }
+                    },
+                    // Trivy scanner - production-grade for 800MB+ image scans
+                    trivy: {
+                        resources: {
+                            requests: {
+                                cpu: "500m",
+                                memory: "2Gi"
+                            },
+                            limits: {
+                                cpu: "2000m",
+                                memory: "3Gi"
+                            }
+                        }
+                    },
+                    redis: {
+                        internal: {
+                            resources: {
+                                requests: {
+                                    cpu: "200m",
+                                    memory: "256Mi"
+                                },
+                                limits: {
+                                    cpu: "500m",
+                                    memory: "512Mi"
+                                }
+                            }
+                        }
+                    },
+                    exporter: {
+                        resources: {
+                            requests: {
+                                cpu: "100m",
+                                memory: "64Mi"
+                            },
+                            limits: {
+                                cpu: "200m",
+                                memory: "128Mi"
+                            }
+                        }
+                    },
                     // Configure S3 storage for registry (images)
                     persistence: {
                         imageChartStorage: {
